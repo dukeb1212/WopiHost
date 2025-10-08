@@ -25,6 +25,9 @@ public interface IFileService
     // User management methods
     Task<bool> UserExistsAsync(int userId);
     Task<string?> GetUserNameAsync(int userId);
+    
+    // Stream operations
+    Task<Stream?> GetFileStreamAsync(int fileId);
 }
 
 public class FileService : IFileService
@@ -296,6 +299,38 @@ public class FileService : IFileService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting name for user {UserId}", userId);
+            return null;
+        }
+    }
+    
+    /// <summary>
+    /// Lấy stream của file
+    /// </summary>
+    /// <param name="fileId">ID của file</param>
+    /// <returns>Stream của file hoặc null nếu không tìm thấy</returns>
+    public async Task<Stream?> GetFileStreamAsync(int fileId)
+    {
+        try
+        {
+            var file = await GetFileByIdAsync(fileId);
+            if (file == null)
+            {
+                _logger.LogWarning("File with ID {FileId} not found", fileId);
+                return null;
+            }
+
+            var filePath = GetFullFilePath(file);
+            if (!System.IO.File.Exists(filePath))
+            {
+                _logger.LogWarning("File {FilePath} does not exist on disk", filePath);
+                return null;
+            }
+
+            return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file stream for file ID {FileId}", fileId);
             return null;
         }
     }

@@ -6,11 +6,11 @@ namespace WopiHost.Models.Database
     [Table("ns01taikhoannguoidung", Schema = "section9nhansu")]
     public class NS01TaiKhoanNguoiDung : ModelBase
     {
-        [Column("manhanvien")]
+        [Column("code")]
         [Required]
         public string MaNhanVien { get; set; } = string.Empty;
 
-        [Column("hoten")]
+        [Column("name")]
         [Required]
         public string HoTen { get; set; } = string.Empty;
 

@@ -5,6 +5,7 @@ using WopiHost.Discovery;
 using Microsoft.Extensions.Options;
 using WopiHost.Models.Configuration;
 using WopiHost.Infrastructure;
+using WopiHost.Models.Database;
 
 namespace WopiHost.Controllers;
 
@@ -74,10 +75,21 @@ public class ActionController : ControllerBase
                 return NotFound("File not found");
             }
 
-            // Check if file is supported by Office Online
-            if (!file.IsOfficeDocument)
+            // Kiểm tra loại file và quyết định cách xử lý
+            // PDF được xử lý bởi trình xem PDF riêng
+            if (file.FileExtension.ToLowerInvariant() == ".pdf")
             {
-                return BadRequest("File type not supported by Office Online");
+                // Xử lý riêng cho file PDF
+                return HandlePdfFile(file, action, currentUserId);
+            }
+            // Office documents được xử lý bởi WOPI
+            else if (file.IsOfficeDocument())
+            {
+                // Xử lý tiếp tục với Office Online
+            }
+            else
+            {
+                return BadRequest("File type not supported");
             }
 
             // Generate access token with user information
@@ -163,6 +175,65 @@ public class ActionController : ControllerBase
                 : $"{baseUrl}/p/PowerPointFrame.aspx",
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Xử lý file PDF và trả về URL xem PDF
+    /// </summary>
+    /// <param name="file">Thông tin file PDF</param>
+    /// <param name="action">Hành động: xem hoặc chỉnh sửa</param>
+    /// <param name="userId">ID người dùng</param>
+    /// <returns>URL xem PDF</returns>
+    private IActionResult HandlePdfFile(CR02TepDinhKem file, string action, string userId)
+    {
+        try
+        {
+            // Tạo JWT token cho truy cập file
+            var accessToken = _jwtService.GenerateToken(file.Id, userId);
+
+            // Xây dựng URL cho PDF viewer
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            
+            // // Xử lý các header được chuyển tiếp nếu có
+            // if (Request.Headers.ContainsKey("X-ARR-SSL") && Request.Headers.ContainsKey("Host"))
+            // {
+            //     var publicHostname = _publicUrl;
+            //     baseUrl = $"https://{publicHostname}";
+            //     _logger.LogInformation("Using baseUrl from IIS ARR headers: {BaseUrl}", baseUrl);
+            // }
+            // else if (Request.Headers.ContainsKey("X-Forwarded-Proto") && Request.Headers.ContainsKey("X-Forwarded-Host"))
+            // {
+            //     baseUrl = $"{Request.Headers["X-Forwarded-Proto"]}://{Request.Headers["X-Forwarded-Host"]}";
+            //     _logger.LogInformation("Using baseUrl from standard forwarded headers: {BaseUrl}", baseUrl);
+            // }
+            var publicHostname = _publicUrl;
+            baseUrl = $"https://{publicHostname}";
+
+            // URL đến PDF viewer - tương thích với trang pdf.html mới
+            var encodedFileName = Uri.EscapeDataString(string.IsNullOrWhiteSpace(file.FileName)
+                ? $"document-{file.Id}.pdf"
+                : file.FileName);
+            var pdfViewerUrl = $"{baseUrl}/viewers/pdf.html?fileId={file.Id}&access_token={Uri.EscapeDataString(accessToken)}&fileName={encodedFileName}";
+
+            var response = new
+            {
+                ActionUrl = pdfViewerUrl,
+                AccessToken = accessToken,
+                FileId = file.Id,
+                FileName = file.FileName,
+                Action = action,
+                ViewerType = "pdf"
+            };
+
+            _logger.LogInformation("Generated {Action} URL for PDF file {FileId}: {FileName}", action, file.Id, file.FileName);
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating PDF viewer URL for file {FileId}", file.Id);
+            return StatusCode(500, "Internal server error");
+        }
     }
 
     /// <summary>

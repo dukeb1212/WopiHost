@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>PDF Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/lib/pdfjs/web/images/favicon.ico" />
+    <style>
+        :root {
+            color-scheme: light dark;
+            --brand-color: #2563eb;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #f9fafb;
+            color: #1f2937;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--brand-color);
+            color: #f9fafb;
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        header h1 span {
+            opacity: 0.8;
+            font-weight: 400;
+        }
+
+        header button {
+            background: rgba(249, 250, 251, 0.15);
+            border: 1px solid rgba(249, 250, 251, 0.3);
+            border-radius: 0.5rem;
+            color: inherit;
+            font-weight: 500;
+            padding: 0.4rem 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        header button:hover {
+            background: rgba(249, 250, 251, 0.25);
+        }
+
+        main {
+            flex: 1;
+            background: #111827;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        iframe {
+            display: block !important;
+            border: 0;
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 100vh !important;
+            flex: 1;
+            background: #fff;
+        }
+
+        .error {
+            flex: 1;
+            display: grid;
+            place-items: center;
+            padding: 2rem;
+            text-align: center;
+            background: #fef2f2;
+            color: #991b1b;
+        }
+
+        .error h2 {
+            margin-bottom: 0.5rem;
+            font-size: 1.4rem;
+        }
+
+        .error p {
+            margin: 0;
+            color: #b91c1c;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #0f172a;
+                color: #f9fafb;
+            }
+
+            header button {
+                color: inherit;
+            }
+
+            .error {
+                background: #2f1316;
+                color: #fecaca;
+            }
+
+            .error p {
+                color: #fecaca;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" role="presentation">
+                <path d="M7 20h10a2 2 0 0 0 2-2V8l-6-6H7a2 2 0 0 0-2 2v1" />
+                <path d="M14 3v5h5" />
+                <path d="M3 15h6" />
+                <path d="m4 10-3 3 3 3" />
+            </svg>
+            <span id="fileLabel">PDF Viewer</span>
+        </h1>
+        <button type="button" id="downloadButton">Download PDF</button>
+    </header>
+    <main>
+        <iframe id="viewerFrame" title="Embedded PDF viewer" allow="fullscreen"></iframe>
+        <div id="errorContainer" class="error" hidden>
+            <div>
+                <h2>Unable to load the PDF viewer</h2>
+                <p id="errorMessage">Missing parameters.</p>
+            </div>
+        </div>
+    </main>
+    <script>
+        (function () {
+            console.log('PDF Viewer script starting...');
+            console.log('Current URL:', window.location.href);
+            console.log('Query string:', window.location.search);
+            
+            function getQueryParam(...aliases) {
+                const params = new URLSearchParams(window.location.search);
+                console.log('All URL parameters:', Object.fromEntries(params.entries()));
+                
+                for (const alias of aliases) {
+                    const value = params.get(alias);
+                    console.log(`Checking parameter "${alias}": "${value}"`);
+                    if (value && value.trim() !== "") {
+                        return value;
+                    }
+                }
+                return null;
+            }
+
+            const fileId = getQueryParam("fileId", "fileID", "file_id");
+            const token = getQueryParam("access_token", "accessToken");
+            const fileName = getQueryParam("fileName", "filename", "file_name");
+
+            console.log('Extracted parameters:');
+            console.log('  fileId:', fileId);
+            console.log('  token:', token ? token.substring(0, 20) + '...' : 'null');
+            console.log('  fileName:', fileName);
+
+            const viewerFrame = document.getElementById("viewerFrame");
+            const errorContainer = document.getElementById("errorContainer");
+            const errorMessage = document.getElementById("errorMessage");
+            const downloadButton = document.getElementById("downloadButton");
+            const fileLabel = document.getElementById("fileLabel");
+
+            if (fileName) {
+                fileLabel.textContent = fileName;
+                downloadButton.setAttribute("aria-label", `Download ${fileName}`);
+            }
+
+            console.log('Validation check:');
+            console.log('  fileId valid:', !!fileId, 'value:', fileId);
+            console.log('  token valid:', !!token, 'length:', token?.length || 0);
+
+            if (!fileId || !token) {
+                const message = !fileId && !token
+                    ? "Missing fileId and access_token query parameters."
+                    : `Missing ${!fileId ? "fileId" : "access_token"} query parameter.`;
+                console.error('Parameter validation failed:', message);
+                console.error('Detailed validation:');
+                console.error('  fileId:', fileId, 'type:', typeof fileId, 'truthy:', !!fileId);
+                console.error('  token:', token ? token.substring(0, 20) + '...' : 'null/undefined', 'type:', typeof token, 'truthy:', !!token);
+                errorMessage.textContent = message;
+                viewerFrame.hidden = true;
+                errorContainer.hidden = false;
+                downloadButton.disabled = true;
+                downloadButton.title = "Download disabled";
+                return;
+            }
+
+            console.log('Parameters validation passed - proceeding with PDF loading');
+
+            // Use query parameters approach to avoid IIS URL length restrictions
+            // But avoid double encoding by fetching content first
+            const proxyUrl = `/viewers/pdfproxy?fileId=${fileId}&token=${encodeURIComponent(token)}`;
+            
+            console.log('Generated proxy URL:', proxyUrl);
+            console.log('Fetching PDF content to avoid encoding issues...');
+
+            // Force hide error containers initially
+            console.log('Setting element visibility:');
+            console.log('  errorContainer.hidden before:', errorContainer.hidden);
+            console.log('  viewerFrame.hidden before:', viewerFrame.hidden);
+            
+            // Use multiple approaches to ensure error is completely hidden
+            errorContainer.hidden = true;
+            errorContainer.style.display = 'none';
+            errorContainer.style.visibility = 'hidden';
+            
+            viewerFrame.hidden = false;
+            viewerFrame.style.display = 'block';
+            viewerFrame.style.visibility = 'visible';
+            viewerFrame.style.width = '100%';
+            viewerFrame.style.height = '100%';
+            viewerFrame.style.minHeight = '100vh';
+            viewerFrame.style.position = 'relative';
+            viewerFrame.style.flex = '1';
+            
+            console.log('  errorContainer.hidden after:', errorContainer.hidden);
+            console.log('  viewerFrame.hidden after:', viewerFrame.hidden);
+            
+            // Fetch PDF content via proxy to avoid double encoding issues
+            console.log('Fetching PDF via proxy...');
+            fetch(proxyUrl)
+                .then(response => {
+                    console.log('Proxy response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.blob();
+                })
+                .then(blob => {
+                    console.log('PDF blob received, size:', blob.size);
+                    
+                    // Create blob URL for PDF.js viewer
+                    const blobUrl = URL.createObjectURL(blob);
+                    const pdfViewerUrl = `/lib/pdfjs/web/viewer.html?file=${encodeURIComponent(blobUrl)}#pagemode=none`;
+                    
+                    console.log('Generated blob URL and PDF viewer URL');
+                    console.log('  blobUrl:', blobUrl.substring(0, 50) + '...');
+                    console.log('  pdfViewerUrl:', pdfViewerUrl);
+                    
+                    // Load PDF viewer with blob URL (no encoding issues)
+                    viewerFrame.src = pdfViewerUrl;
+                    
+                    // Clean up blob URL when iframe unloads (optional)
+                    viewerFrame.addEventListener('beforeunload', () => {
+                        URL.revokeObjectURL(blobUrl);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching PDF via proxy:', error);
+                    
+                    // Show error message
+                    errorMessage.textContent = `Failed to load PDF: ${error.message}`;
+                    errorContainer.hidden = false;
+                    viewerFrame.hidden = true;
+                    
+                    // Also hide any error containers that might have been shown
+                    const allErrorContainers = document.querySelectorAll('.error, [id*="error"], [class*="error"]');
+                    allErrorContainers.forEach((container, index) => {
+                        if (container !== errorContainer) {
+                            console.log(`Hiding error container ${index} after fetch error:`, container);
+                            container.hidden = true;
+                            container.style.display = 'none';
+                            container.style.visibility = 'hidden';
+                        }
+                    });
+                });
+            
+            // Add load event listener to track if iframe loads successfully
+            viewerFrame.addEventListener('load', function() {
+                console.log('PDF viewer iframe loaded successfully - forcing error containers to hide');
+                
+                // Force hide ALL error containers with multiple methods
+                const allErrorContainers = document.querySelectorAll('.error, [id*="error"], [class*="error"]');
+                allErrorContainers.forEach((container, index) => {
+                    console.log(`Force hiding error container ${index} on iframe load:`, container);
+                    container.hidden = true;
+                    container.style.display = 'none !important';
+                    container.style.visibility = 'hidden';
+                    container.style.opacity = '0';
+                    container.style.position = 'absolute';
+                    container.style.left = '-9999px';
+                });
+                
+                // Ensure viewer frame is fully visible and properly sized
+                viewerFrame.hidden = false;
+                viewerFrame.style.display = 'block';
+                viewerFrame.style.visibility = 'visible';
+                viewerFrame.style.opacity = '1';
+                viewerFrame.style.width = '100%';
+                viewerFrame.style.height = '100%';
+                viewerFrame.style.minHeight = '100vh';
+                viewerFrame.style.position = 'relative';
+                viewerFrame.style.flex = '1';
+                
+                console.log('All error containers should now be completely hidden');
+                
+                // Debug iframe dimensions
+                console.log('Iframe dimensions:');
+                console.log('  clientWidth:', viewerFrame.clientWidth);
+                console.log('  clientHeight:', viewerFrame.clientHeight);
+                console.log('  offsetWidth:', viewerFrame.offsetWidth);
+                console.log('  offsetHeight:', viewerFrame.offsetHeight);
+                console.log('  scrollWidth:', viewerFrame.scrollWidth);
+                console.log('  scrollHeight:', viewerFrame.scrollHeight);
+                
+                // Debug main container dimensions
+                const main = document.querySelector('main');
+                console.log('Main container dimensions:');
+                console.log('  clientWidth:', main.clientWidth);
+                console.log('  clientHeight:', main.clientHeight);
+                console.log('  offsetWidth:', main.offsetWidth);
+                console.log('  offsetHeight:', main.offsetHeight);
+            });
+            
+            viewerFrame.addEventListener('error', function() {
+                console.error('PDF viewer iframe failed to load');
+                errorContainer.hidden = false;
+                errorMessage.textContent = "Failed to load PDF viewer.";
+            });
+
+            downloadButton.addEventListener("click", () => {
+                console.log('Download button clicked');
+                
+                // Use fetch to download PDF to avoid encoding issues
+                fetch(proxyUrl)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        return response.blob();
+                    })
+                    .then(blob => {
+                        const blobUrl = URL.createObjectURL(blob);
+                        const anchor = document.createElement("a");
+                        anchor.href = blobUrl;
+                        anchor.rel = "noopener";
+                        anchor.download = fileName || `document-${fileId}.pdf`;
+                        document.body.appendChild(anchor);
+                        anchor.click();
+                        document.body.removeChild(anchor);
+                        
+                        // Clean up blob URL
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+                    })
+                    .catch(error => {
+                        console.error('Error downloading PDF:', error);
+                        alert(`Failed to download PDF: ${error.message}`);
+                    });
+            });
+        })();
+    </script>
+</body>
+</html>

@@ -39,6 +39,12 @@ public class WopiDbFile : IWopiFile
     public long Size => _dbFile.SizeInBytes;
     public string Version => _dbFile.Version ?? "1.0"; // Cần một giá trị không null
     public bool CanBeReadFromStream => true;
+    
+    // Các thuộc tính mở rộng để hỗ trợ nhiều loại file
+    public bool IsOfficeDocument => Extension.IsOfficeDocument();
+    public bool IsPdfDocument => Extension.IsPdfDocument();
+    public bool IsImage => Extension.IsImage();
+    public bool IsVideo => Extension.IsVideo();
 
     public string Owner => _owner; // Owner sẽ được lấy từ dịch vụ
     public long Length => _dbFile.SizeInBytes;

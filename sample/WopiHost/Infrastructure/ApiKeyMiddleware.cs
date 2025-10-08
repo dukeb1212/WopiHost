@@ -1,5 +1,7 @@
 #nullable enable
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
+using System;
 using System.Net;
 using WopiHost.Models.Configuration;
 
@@ -24,17 +26,32 @@ public class ApiKeyMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         // Skip API key validation for WOPI endpoints as they use their own auth mechanism
-        if (context.Request.Path.StartsWithSegments("/wopi"))
+        if (context.Request.Path.StartsWithSegments("/wopi") || 
+            context.Request.Path.StartsWithSegments("/viewers")  || 
+            context.Request.Path.StartsWithSegments("/lib") || 
+            context.Request.Path.StartsWithSegments("/api/pdf"))
         {
             _logger.LogDebug("Skipping API key validation for WOPI endpoint: {Path}", context.Request.Path);
             await _next(context);
             return;
         }
 
-        // Handle access_token in query string as a special case for Office Online
-        if (context.Request.Query.ContainsKey("access_token"))
+        // Handle access_token in query string as a special case for WOPI tokens (e.g., Office Online, PDF viewer)
+        if (context.Request.Query.TryGetValue("access_token", out var accessTokenValues) &&
+            !StringValues.IsNullOrEmpty(accessTokenValues))
         {
-            _logger.LogDebug("Request contains access_token, likely a WOPI request");
+            _logger.LogDebug("Request contains access_token, skipping API key validation: {Path}", context.Request.Path);
+            await _next(context);
+            return;
+        }
+
+        // Allow the PDF streaming endpoint to work with token-based auth even if the client omits the query key casing
+        if (context.Request.Path.StartsWithSegments("/api/pdf", StringComparison.OrdinalIgnoreCase) &&
+            (context.Request.Query.Keys.Any(k => string.Equals(k, "access_token", StringComparison.OrdinalIgnoreCase)) ||
+             (context.Request.QueryString.HasValue &&
+              context.Request.QueryString.Value?.Contains("access_token=", StringComparison.OrdinalIgnoreCase) == true)))
+        {
+            _logger.LogDebug("Detected PDF endpoint with access_token, skipping API key validation: {Path}", context.Request.Path);
             await _next(context);
             return;
         }

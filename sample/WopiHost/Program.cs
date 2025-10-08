@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
@@ -215,10 +217,43 @@ public static class Program
                 options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} with [WOPI CorrelationID: {" + nameof(WopiHeaders.CORRELATION_ID) + "}, WOPI SessionID: {" + nameof(WopiHeaders.SESSION_ID) + "}] responded {StatusCode} in {Elapsed:0.0000} ms";
             });
 
+            // Normalize encoded PDF requests where the viewer double-encodes query parameters
+            app.Use(async (context, next) =>
+            {
+                if (context.Request.Path.HasValue &&
+                    context.Request.Path.StartsWithSegments("/api/pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    var pathValue = context.Request.Path.Value!;
+                    
+                    // Handle cases where query string is encoded in the path
+                    const string encodedQuery = "%3F"; // encoded ?
+                    var queryIndex = pathValue.IndexOf(encodedQuery, StringComparison.OrdinalIgnoreCase);
+                    
+                    if (queryIndex >= 0)
+                    {
+                        var basePath = pathValue.Substring(0, queryIndex);
+                        var encodedQueryString = pathValue.Substring(queryIndex + encodedQuery.Length);
+                        
+                        // URL decode the query string part
+                        var decodedQueryString = Uri.UnescapeDataString(encodedQueryString);
+                        
+                        context.Request.Path = new PathString(basePath);
+                        context.Request.QueryString = new QueryString($"?{decodedQueryString}");
+                        
+                        Log.Information("Normalized PDF URL: Path={Path}, QueryString={QueryString}", 
+                            context.Request.Path, context.Request.QueryString);
+                    }
+                }
+
+                await next();
+            });
+
             app.Use(async (context, next) =>
             {
                 if (!context.Request.Path.StartsWithSegments("/api") && 
-                    !context.Request.Path.StartsWithSegments("/wopi"))
+                    !context.Request.Path.StartsWithSegments("/wopi") &&
+                    !context.Request.Path.StartsWithSegments("/viewers") &&
+                    !context.Request.Path.StartsWithSegments("/lib"))
                 {
                     context.Response.StatusCode = StatusCodes.Status404NotFound;
                     await context.Response.WriteAsync("Not Found");
@@ -237,6 +272,14 @@ public static class Program
             app.UseAuthentication();
             app.UseAuthorization();
 
+            // Serve static files from wwwroot and allow pdf.js locale resources
+            var staticContentTypeProvider = new FileExtensionContentTypeProvider();
+            staticContentTypeProvider.Mappings[".ftl"] = "text/plain";
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                ContentTypeProvider = staticContentTypeProvider
+            });
+            
             app.MapControllers();
             app.MapGet("/", () => "This is just a WOPI server. You need a WOPI client to access it...").ShortCircuit(404);
 
